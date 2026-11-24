@@ -51,13 +51,25 @@ module.exports = {
 		const minutes = Math.floor((totalSec % 3600) / 60);
 		const seconds = totalSec % 60;
 
+		const readCg = (f) => {
+			try { return require("fs").readFileSync("/sys/fs/cgroup/" + f, "utf8").trim(); }
+			catch (e) { return null; }
+		};
+
 		const cpus = os.cpus();
 		const cpuModel = (cpus[0] && cpus[0].model || "Unknown").trim();
-		const cores = cpus.length;
+		let cores = cpus.length;
+		const cpuMax = readCg("cpu.max");
+		if (cpuMax && !cpuMax.startsWith("max")) {
+			const [quota, period] = cpuMax.split(" ").map(Number);
+			if (quota > 0 && period > 0) cores = Math.max(1, Math.round((quota / period) * 100) / 100);
+		}
 
-		const totalMem = os.totalmem();
-		const freeMem = os.freemem();
-		const usedMem = totalMem - freeMem;
+		// Container limits (cgroup v2) fall back to host values when unavailable
+		const cgMax = readCg("memory.max");
+		const cgCur = readCg("memory.current");
+		const totalMem = cgMax && cgMax !== "max" ? Number(cgMax) : os.totalmem();
+		const usedMem = cgCur ? Number(cgCur) : os.totalmem() - os.freemem();
 		const memPercent = ((usedMem / totalMem) * 100).toFixed(1);
 
 		const human = (bytes) => {
